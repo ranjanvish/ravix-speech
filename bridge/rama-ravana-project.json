@@ -1,0 +1,12 @@
+{
+  "title":"राम बनाम रावण — धर्म का अंतिम युद्ध",
+  "model":"gemini-3.8-flash-tts",
+  "turns":[
+    {"speaker":"रावण","voice":"Algenib","style":"Fierce, threatening and forceful; clear Hindi, urgent attack.","text":"राम! आज स्वयं मृत्यु भी तुम्हें मुझसे नहीं बचा सकती!"},
+    {"speaker":"राम","voice":"Achird","style":"Controlled anger and resolute challenge; powerful, clear Hindi.","text":"रावण! आज तुम्हारा अहंकार ही तुम्हारी मृत्यु बनेगा!"},
+    {"speaker":"रावण","voice":"Algenib","style":"Proud, defiant anger and commanding projection; clear Hindi.","text":"मैं लंकापति दशानन हूँ! मुझे कोई नहीं हरा सकता!"},
+    {"speaker":"राम","voice":"Achird","style":"Steadfast conviction with restrained anger; measured, clear Hindi.","text":"अधर्म कितना भी शक्तिशाली हो, उसका अंत निश्चित है!"},
+    {"speaker":"रावण","voice":"Algenib","style":"Desperate, forceful cry of defeat.","text":"नहींऽऽऽ!"},
+    {"speaker":"राम","voice":"Achird","style":"Dignified, triumphant and composed; clear measured delivery.","text":"यह विजय राम की नहीं, धर्म की है!"}
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "manifest_version": 3,
+  "name": "RAVIX Speech",
+  "version": "1.1.14",
+  "description": "Plan speech, inspect Google AI Studio, multi-speaker screenplay automation & verified downloads with RAVIX Speech.",
+  "permissions": [
+    "storage",
+    "tabs",
+    "downloads",
+    "alarms",
+    "scripting",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://aistudio.google.com/*",
+    "http://127.0.0.1/*",
+    "http://localhost/*",
+    "http://127.0.0.1:17842/*",
+    "http://127.0.0.1:17841/*"
+  ],
+  "action": {
+    "default_title": "RAVIX Speech",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://aistudio.google.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  }
+}
