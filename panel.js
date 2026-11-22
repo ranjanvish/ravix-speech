@@ -85,14 +85,14 @@ chrome.storage.local.get('speechDraft').then(({speechDraft})=>{
 function makeDialoguePlan() {
   const cast = JSON.parse($('castJson').value);
   const turns = JSON.parse($('turnJson').value);
-  if(!Array.isArray(cast)||!Array.isArray(turns)||!cast.length||!turns.length) throw Error('पात्र और turns की valid JSON lists दें।');
-  return { model: 'gemini-3.8-flash-tts', createdAt: new Date().toISOString(), turns };
+  return { ...RavixDialoguePlanner.plan(cast, turns), createdAt: new Date().toISOString() };
 }
 
 $('planDialogue')?.addEventListener('click', () => {
   try {
-    $('dialoguePlan').textContent = JSON.stringify(makeDialoguePlan(), null, 2);
-    status('Dialogue plan तैयार है।');
+    const plan = makeDialoguePlan();
+    $('dialoguePlan').textContent = JSON.stringify(plan, null, 2);
+    status(plan.readyForGeneration ? 'Dialogue plan तैयार है।' : 'Draft तैयार है; casting और audition जाँच बाकी है।', !plan.readyForGeneration);
   } catch(e) {
     status(e.message, true);
   }

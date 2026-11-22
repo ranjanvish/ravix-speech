@@ -5,7 +5,7 @@ from pathlib import Path
 sys.path.insert(0, r"C:\Users\ranja\AppData\Local\Programs\RAVIX")
 import voice_timing
 
-audio_path = r"R:\Google-AI Studio\test-audio\08-rama-ravana-cinematic.wav"
+audio_path = str(Path(__file__).resolve().parents[2] / "test-audio" / "08-rama-ravana-cinematic.wav")
 script_text = """राम! आज स्वयं मृत्यु भी तुम्हें मुझसे नहीं बचा सकती!
 रावण! आज तुम्हारा अहंकार ही तुम्हारी मृत्यु बनेगा!
 मैं लंकापति दशानन हूँ! मुझे कोई नहीं हरा सकता!
@@ -22,7 +22,7 @@ try:
     }, task_id)
     print("Alignment completed successfully!")
     print(f"Total Words Aligned: {len(res.get('words', []))}")
-    output_json = Path(r"R:\Google-AI Studio\test-audio\08-rama-ravana-alignment.json")
+    output_json = (Path(__file__).resolve().parents[2] / "test-audio" / "08-rama-ravana-alignment.json")
     output_json.write_text(json.dumps(res, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"Saved alignment JSON to: {output_json}")
     words = res.get("words", [])

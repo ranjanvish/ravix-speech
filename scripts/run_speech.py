@@ -19,7 +19,7 @@ import urllib.request
 import wave
 
 BRIDGE_URL = "http://127.0.0.1:17842"
-ROOT_DIR = Path(__file__).resolve().parent
+ROOT_DIR = Path(__file__).resolve().parents[2]
 BRIDGE_DIR = ROOT_DIR / "RAVIX-Speech-Assistant" / "bridge"
 DOWNLOADS_DIR = Path(os.environ.get("USERPROFILE", "C:/Users/ranja")) / "Downloads"
 
@@ -313,7 +313,7 @@ def main():
     parser = argparse.ArgumentParser(description="RAVIX Speech Assistant - Live Automation Runner")
     parser.add_argument("--script", type=str, help="Raw script text or path to script file")
     parser.add_argument("--project", type=str, help="Path to project.json file")
-    parser.add_argument("--output", type=str, default="R:/Google-AI Studio/test-audio/rama-ravana-cinematic.wav", help="Target output WAV path")
+    parser.add_argument("--output", type=str, default=str(ROOT_DIR / "test-audio" / "rama-ravana-cinematic.wav"), help="Target output WAV path")
     args = parser.parse_args()
 
     output_path = Path(args.output).resolve()

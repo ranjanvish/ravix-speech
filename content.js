@@ -181,55 +181,46 @@
     const models = btns.filter(b => /gemini.*tts/i.test(b));
     const speakers = [...new Set(btns.filter(b => /^speaker\s*\d/i.test(b)))];
 
-    const isEditorActive = editors.length > 0 || Boolean(addBlockBtn);
-    const phase = isEditorActive ? 'editor' : 'landing';
+    const speechPage = location.hostname === 'aistudio.google.com' && /^\/generate-speech(?:\/|$)/.test(location.pathname);
+    const isEditorActive = speechPage && editors.length > 0 && Boolean(addBlockBtn);
+    const create = speechPage && Boolean(findButton(/create\s*(?:new)?\s*dialog/i) || findClickableByText(/create\s*(?:new)?\s*dialog/i));
+    const welcome = [...document.querySelectorAll('[role="dialog"], mat-dialog-container, .mat-mdc-dialog-container')].filter(isVisible)
+      .find(d => /welcome to ai studio/i.test(d.innerText || '') && /terms of service/i.test(d.innerText || ''));
+    const phase = welcome ? 'welcome_terms' : !speechPage ? 'wrong_page' : isEditorActive ? 'editor' : create ? 'landing' : 'unknown';
 
     return {
       ok: true,
       url: window.location.href,
       title: document.title,
       phase,
-      blockCount: editors.length,
+      blockCount: isEditorActive ? editors.length : 0,
       modelCandidates: models,
       speakers,
-      canRun: Boolean(runBtn && !runBtn.disabled && runBtn.getAttribute('aria-disabled') !== 'true'),
-      isGenerating: Boolean(stopBtn),
-      canDownload: Boolean(downloadBtn && !downloadBtn.disabled),
-      hasAddBlock: Boolean(addBlockBtn)
+      canRun: Boolean(!welcome && isEditorActive && runBtn && !runBtn.disabled && runBtn.getAttribute('aria-disabled') !== 'true'),
+      isGenerating: Boolean(isEditorActive && stopBtn),
+      canDownload: Boolean(isEditorActive && downloadBtn && !downloadBtn.disabled),
+      hasAddBlock: Boolean(isEditorActive && addBlockBtn),
+      guidance: phase === 'welcome_terms' ? 'AI Studio welcome/terms dialog is blocking the editor. Inspect it and continue only with the user’s authorization.' : phase === 'wrong_page' ? 'Open Run settings > model > Audio > a TTS model, then Create new dialog.' : phase === 'unknown' ? 'Speech controls not recognized; wait or inspect the page.' : '',
+      dialogueGuidance: 'Read docs/INSTANT-RUNBOOK.md before a new speech task. Cast distinct auditioned voices appropriate to each character; keep voices stable. Use maximal contiguous batches of at most two characters when requested; verify each voice and style before Run, download and verify immediately, then join in script order. Second-speaker selection and automatic end-to-end delivery are not verified. Preserve drafts and existing audio; never repeat an uncertain Run. Forced alignment is unnecessary for intact batches and cannot independently verify a cut.'
     };
   }
 
   // Ensure dialogue editor is open
-  async function ensureEditor() {
-    let editors = getSpeechTextareas();
-    let addBtn = findAddSpeechBlockButton();
-    if (editors.length > 0 || addBtn) {
-      console.log(`[RAVIX Speech Engine] Dialogue editor active (${editors.length} speech blocks visible).`);
-      return true;
-    }
-
-    console.log('[RAVIX Speech Engine] Editor not active. Looking for Create Dialog card...');
-    const createBtn = findClickableByText(/create\s*(?:new)?\s*dialog/i) ||
-                      findClickableByText(/start\s*(?:new)?\s*dialog/i) ||
-                      findClickableByText(/new\s*dialog/i) ||
-                      findClickableByText(/gemini\s*3\.8\s*flash\s*tts/i) ||
-                      findClickableByText(/dual-speaker/i);
-
-    if (createBtn) {
-      console.log('[RAVIX Speech Engine] Clicking create dialog element:', getText(createBtn));
-      clickElement(createBtn);
-      try {
-        await waitFor(() => getSpeechTextareas().length > 0 || findAddSpeechBlockButton(), 'Dialogue editor to open', 8000);
-        await delay(500);
-        return true;
-      } catch (e) {
-        if (createBtn.parentElement) {
-          clickElement(createBtn.parentElement);
-          await delay(1000);
-        }
-      }
-    }
-
+  async function ensureEditor(metrics = null) {
+    const initial = scanPage();
+    if (initial.phase === 'wrong_page') throw new Error('Wrong page: select a TTS model under Run settings > model > Audio, then Create new dialog.');
+    if (initial.phase === 'welcome_terms') throw new Error('Welcome/terms dialog blocks the editor; inspect it first.');
+    if (initial.phase === 'editor') return true;
+    // Wait on the actual button, not a fixed page-load sleep or an unrelated model card.
+    const create = await waitFor(() => {
+      const state = scanPage();
+      if (state.phase !== 'landing') return null;
+      const matches = getButtons().filter(b => /create\s*(?:new)?\s*dialog/i.test(getText(b)));
+      return matches.length === 1 ? matches[0] : null;
+    }, 'unique Create new dialog button', 15000, 100);
+    if (metrics) metrics.createClickAt = Date.now();
+    create.click();
+    await waitFor(() => scanPage().phase === 'editor', 'speech editor after Create new dialog', 12000, 100);
     return true;
   }
 
@@ -259,6 +250,7 @@
     }
 
     console.log(`[RAVIX Speech Engine] Finished block setup: ${currentCount} speech blocks present.`);
+    if (currentCount !== targetCount) throw new Error(`Expected ${targetCount} blocks, found ${currentCount}; existing blocks were not removed.`);
     return currentCount;
   }
 
@@ -277,7 +269,8 @@
       return;
     }
 
-    const spkBtn = [...document.querySelectorAll('button')].filter(isVisible).find(b => {
+    const settingsButtons = [...document.querySelectorAll('button[aria-label="Open voice settings" i]')].filter(isVisible);
+    const spkBtn = settingsButtons[speakerNum - 1] || [...document.querySelectorAll('button')].filter(isVisible).find(b => {
       const t = getText(b);
       return new RegExp(`speaker\\s*${speakerNum}\\b`, 'i').test(t);
     });
@@ -287,10 +280,15 @@
       await delay(500);
     }
 
-    const searchInput = await waitFor(() => {
+    let searchInput = await waitFor(() => {
       const inputs = [...document.querySelectorAll('.voice-search-input input, input[placeholder*="Search" i], input')].filter(isVisible);
       return inputs.find(i => /search/i.test(i.placeholder || '') || /search/i.test(i.getAttribute('aria-label') || ''));
     }, 'Voice catalog search input', 4000).catch(() => null);
+    if (!searchInput && spkBtn) {
+      await delay(900);
+      spkBtn.click();
+      searchInput = await waitFor(() => [...document.querySelectorAll('input')].filter(isVisible).find(i => /search/i.test(i.placeholder || '') || /search/i.test(i.getAttribute('aria-label') || '')), 'Voice catalog search input', 5000).catch(() => null);
+    }
 
     if (searchInput) {
       console.log(`[RAVIX Speech Engine] Searching voice catalog for: "${targetVoice}"...`);
@@ -309,7 +307,7 @@
         console.log(`[RAVIX Speech Engine] Voice row found. Selecting: ${targetVoice}`);
         clickElement(match);
         await delay(350);
-      }
+      } else throw new Error(`Voice ${targetVoice} not found in catalog`);
 
       const closeBtn = document.querySelector('button[aria-label="Close panel" i]');
       if (closeBtn) {
@@ -318,13 +316,15 @@
         document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
       }
       await delay(300);
-    }
+    } else throw new Error('Voice catalog search unavailable');
+    const selected = [...document.querySelectorAll('button, .voice-chip-label')].filter(isVisible).some(c => new RegExp(`speaker\\s*${speakerNum}\\b`, 'i').test(getText(c)) && getText(c).toLowerCase().includes(targetVoice.toLowerCase()));
+    if (!selected) throw new Error(`Voice ${targetVoice} for Speaker ${speakerNum} could not be verified`);
   }
 
   // Select Speaker 1 or Speaker 2 for a specific block
   async function setBlockSpeaker(blockCard, targetSpeakerNum) {
     const blockSpeakerBtn = [...blockCard.querySelectorAll('button, [role="button"]')].find(b => /speaker\s*\d/i.test(getText(b)));
-    if (!blockSpeakerBtn) return;
+    if (!blockSpeakerBtn) throw new Error('Speaker control not found in block');
 
     const currentText = getText(blockSpeakerBtn);
     if (new RegExp(`Speaker\\s*${targetSpeakerNum}`, 'i').test(currentText)) {
@@ -346,10 +346,10 @@
       if (addSpeakerOption) {
         clickElement(addSpeakerOption);
         await delay(400);
-      } else {
-        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
-      }
+      } else throw new Error(`Speaker ${targetSpeakerNum} option not found`);
     }
+    const updated = [...blockCard.querySelectorAll('button, [role="button"]')].find(b => /speaker\s*\d/i.test(getText(b)));
+    if (!updated || !new RegExp(`Speaker\\s*${targetSpeakerNum}\\b`, 'i').test(getText(updated))) throw new Error(`Speaker ${targetSpeakerNum} assignment could not be verified`);
   }
 
   // Set Style description for a block with 100% reliable popover commit
@@ -364,8 +364,7 @@
                      });
 
     if (!styleBtn) {
-      console.warn(`[RAVIX Speech Engine] Style button not found for block ${blockIndex + 1}`);
-      return;
+      throw new Error(`Style button not found for block ${blockIndex + 1}`);
     }
 
     console.log(`[RAVIX Speech Engine] Opening Style popup for block ${blockIndex + 1}...`);
@@ -394,83 +393,79 @@
         document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
       }
       await delay(250);
+      clickElement(styleBtn);
+      await delay(250);
+      const verifyStyle = document.querySelector('.voice-style-dropdown-menu textarea, .daikon-custom-style-container textarea');
+      const actualStyle = verifyStyle && verifyStyle.value;
+      const close = document.querySelector('.cdk-overlay-backdrop');
+      if (close) clickElement(close); else document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+      await delay(200);
+      if (actualStyle !== styleText) throw new Error(`Style for block ${blockIndex + 1} did not persist`);
     } else {
-      console.warn(`[RAVIX Speech Engine] Style input not found for block ${blockIndex + 1}`);
       const bd = document.querySelector('.cdk-overlay-backdrop');
       if (bd) clickElement(bd);
       await delay(200);
+      throw new Error(`Style input not found for block ${blockIndex + 1}`);
     }
   }
 
   // Setup entire multi-turn screenplay into all blocks
   async function setupScreenplay(payload) {
-    const turns = payload.turns || [];
-    if (!turns.length) throw new Error('No dialogue turns provided');
-
-    console.log(`[RAVIX Speech Engine] Setting up full screenplay (${turns.length} dialogue turns)...`);
-
-    // 1. Configure Speaker Voices (2,000+ voice catalog)
-    const speaker1Voice = payload.speaker1_voice || "Algenib"; // रावण: Algenib (deep, booming, gravelly)
-    const speaker2Voice = payload.speaker2_voice || "Achird";  // श्रीराम: Achird (clear, noble, commanding)
-
-    try {
-      await configureSpeakerVoice(1, speaker1Voice);
-    } catch (e) {
-      console.warn('Speaker 1 voice setup note:', e);
+    const turns = payload.turns;
+    if (!Array.isArray(turns) || !turns.length || turns.length > 100) throw new Error('Provide 1–100 ordered dialogue turns');
+    const voices = new Map();
+    for (const [i, turn] of turns.entries()) {
+      if (!turn || typeof turn.speaker !== 'string' || !turn.speaker.trim() || typeof turn.text !== 'string' || !turn.text.trim()) throw new Error(`Turn ${i + 1} requires speaker and text`);
+      if (typeof turn.style !== 'string' || !turn.style.trim()) throw new Error(`Turn ${i + 1} requires an explicit style`);
+      const name = turn.speaker.trim();
+      const voice = typeof turn.voice === 'string' ? turn.voice.trim() : '';
+      if (!voices.has(name)) voices.set(name, voice);
+      else if (voice && voices.get(name) && voice.toLowerCase() !== voices.get(name).toLowerCase()) throw new Error(`Conflicting voices for ${name}`);
+      else if (voice) voices.set(name, voice);
     }
-    try {
-      await configureSpeakerVoice(2, speaker2Voice);
-    } catch (e) {
-      console.warn('Speaker 2 voice setup note:', e);
-    }
-
-    // 2. Ensure all blocks exist
+    if (voices.size > 2) throw new Error(`This adapter supports at most two characters per batch; received ${voices.size}. Generate ordered batches or individual turns with consistent voices.`);
+    if ([...voices.values()].some(v => !v)) throw new Error('Specify an explicit voice for each character; defaults are not assigned automatically.');
+    const uniqueVoices = new Set([...voices.values()].map(v => v.trim().toLocaleLowerCase()));
+    if (uniqueVoices.size !== voices.size) throw new Error('Different characters have the same voice. Select distinct voices before setup.');
+    await ensureEditor(payload.__metrics);
+    const scan = scanPage();
+    if (!scan.modelCandidates.some(m => /gemini.*3\.8.*tts/i.test(m))) throw new Error('Verify a supported Gemini 3.8 TTS model before setup.');
+    if (scan.canDownload) throw new Error('Existing audio is present. Save and verify it before starting a new dialog.');
+    if (getSpeechTextareas().some(ta => String(ta.value || '').trim())) throw new Error('Existing speech text found. Preserve it and open a fresh dialog before setup.');
     await ensureBlockCount(turns.length);
-    await delay(500);
-
-    const textareas = getSpeechTextareas();
-    console.log(`[RAVIX Speech Engine] Populating styles and dialogue into all ${Math.min(turns.length, textareas.length)} blocks...`);
-
+    const characters = [...voices.keys()];
+    // The observed speaker chip opens voice settings, not a reliable assignment menu.
+    // Validate the editor's assignments before editing any block instead of guessing.
     for (let i = 0; i < turns.length; i++) {
-      const turn = turns[i];
-      const ta = textareas[i];
-      if (!ta) {
-        console.warn(`[RAVIX Speech Engine] Speech block ${i+1} textarea not found!`);
-        continue;
-      }
-
-      const blockCard = getBlockCard(ta);
-
-      // Determine speaker: Turn 1, 3, 5 -> Speaker 1 (रावण); Turn 2, 4, 6 -> Speaker 2 (श्रीराम)
-      const speakerNum = (i % 2 === 0) ? 1 : 2;
-      try {
-        await setBlockSpeaker(blockCard, speakerNum);
-      } catch (spkErr) {
-        console.warn(`Speaker assignment warning on block ${i+1}:`, spkErr);
-      }
-
-      // 3. SET STYLE ON EVERY SINGLE BLOCK (No block left empty!)
-      const styleText = turn.style || (speakerNum === 1
-        ? "Fierce, booming, arrogant, menacing Hindi dialogue; loud commanding projection."
-        : "Divine serenity, resolute authority, righteous challenge; clear, commanding Hindi.");
-
-      try {
-        await setBlockStyle(blockCard, styleText, i, ta);
-      } catch (styleErr) {
-        console.warn(`Style assignment warning on block ${i+1}:`, styleErr);
-      }
-
-      // 4. Write dialogue text into block textarea
-      setElementValue(ta, turn.text);
-      console.log(`[RAVIX Speech Engine] Block ${i+1} [Speaker ${speakerNum}] dialogue set: "${turn.text.slice(0, 30)}..."`);
-      await delay(250);
+      const ta = getSpeechTextareas()[i];
+      const button = ta && [...getBlockCard(ta).querySelectorAll('button, [role="button"]')].find(b => /speaker\s*\d/i.test(getText(b)));
+      const expected = characters.indexOf(turns[i].speaker.trim()) + 1;
+      if (!button || !new RegExp(`Speaker\\s*${expected}\\b`, 'i').test(getText(button))) throw new Error(`Block ${i + 1} speaker does not match ${turns[i].speaker}. Use separate ordered batches; no text was written.`);
     }
-
-    return { ok: true, turnsCount: turns.length, message: `Configured all ${turns.length} blocks with text, speakers, and styles.` };
+    for (let i = 0; i < turns.length; i++) {
+      const ta = getSpeechTextareas()[i];
+      if (!ta) throw new Error(`Block ${i + 1} missing`);
+      const card = getBlockCard(ta);
+      const speakerNum = characters.indexOf(turns[i].speaker.trim()) + 1;
+      await setBlockStyle(card, turns[i].style, i, ta);
+      setElementValue(ta, turns[i].text);
+      await delay(200);
+      if (ta.value !== turns[i].text) throw new Error(`Block ${i + 1} text did not persist`);
+    }
+    for (const [i, name] of characters.entries()) await configureSpeakerVoice(i + 1, voices.get(name));
+    for (let i = 0; i < turns.length; i++) {
+      const ta = getSpeechTextareas()[i];
+      const button = ta && [...getBlockCard(ta).querySelectorAll('button, [role="button"]')].find(b => /speaker\s*\d/i.test(getText(b)));
+      const expected = characters.indexOf(turns[i].speaker.trim()) + 1;
+      if (!ta || ta.value !== turns[i].text || !button || !new RegExp(`Speaker\\s*${expected}\\b`, 'i').test(getText(button))) throw new Error(`Final verification failed at block ${i + 1}`);
+    }
+    return {ok:true, turnsCount:turns.length, characters:characters.map((name,i)=>({name, speaker:i+1, voice:voices.get(name)})), message:'Text, speaker labels and selected voices verified; audition delivery and review output.'};
   }
 
   // 100% Reliable Run Generation Engine
-  async function runGeneration() {
+  async function runGeneration(metrics = null) {
+    if (scanPage().phase !== 'editor') throw new Error('Speech editor not verified; refusing to run.');
+    if (scanPage().canDownload) throw new Error('Existing audio is present; save it and open a fresh dialog before generating.');
     let runBtn = findButton(/^run\b/i) || findButton(/run ctrl/i) || findClickableByText(/^run\b/i);
     if (!runBtn) throw new Error('Run button not found on page');
 
@@ -478,12 +473,13 @@
       try {
         await waitFor(() => !runBtn.disabled && runBtn.getAttribute('aria-disabled') !== 'true', 'Run button to enable', 8000);
       } catch (e) {
-        console.warn('Run button wait note:', e);
+        throw new Error('Run is disabled; check text, model access and account state.');
       }
     }
 
     console.log('[RAVIX Speech Engine] Triggering Run for all 6 speech blocks...');
     latestAudioData = null;
+    if (metrics) metrics.runClickAt = Date.now();
     clickElement(runBtn);
 
     // Wait up to 10s for generation to actively start
@@ -493,8 +489,7 @@
     while (Date.now() < startDeadline) {
       await delay(600);
       const stop = findButton(/^stop\b/i) || findClickableByText(/^stop\b/i);
-      const isRunDisabled = runBtn.disabled || runBtn.getAttribute('aria-disabled') === 'true';
-      if (stop || isRunDisabled) {
+      if (stop) {
         started = true;
         console.log('[RAVIX Speech Engine] TTS generation actively running in Google AI Studio...');
         break;
@@ -502,9 +497,7 @@
     }
 
     if (!started) {
-      console.warn('[RAVIX Speech Engine] Start indicator not observed; dispatching Ctrl+Enter to ensure Run triggered...');
-      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', ctrlKey: true, bubbles: true }));
-      await delay(2000);
+      throw new Error('Generation start not observed; state is unknown. Inspect this job and the page before retrying.');
     }
 
     // Wait for generation to FINISH (Stop gone, Run enabled, and Download active)
@@ -513,20 +506,21 @@
       const stop = findButton(/^stop\b/i) || findClickableByText(/^stop\b/i);
       const run = findButton(/^run\b/i) || findButton(/run ctrl/i);
       const isRunReady = run && !run.disabled && run.getAttribute('aria-disabled') !== 'true';
-      return !stop && isRunReady;
+      const download = findButton(/download/i);
+      return !stop && isRunReady && download && !download.disabled && download.getAttribute('aria-disabled') !== 'true';
     }, 'TTS generation to finish and Run button to become ready', 240000, 1500);
 
     await delay(2000);
     console.log('[RAVIX Speech Engine] TTS Generation completed successfully!');
-    return { ok: true, message: 'Generation complete' };
+    return { ok: true, message: 'Generation completed and download control appeared. Verify and listen to the output.' };
   }
 
   async function getAudioBlobBase64() {
     try {
       const audios = [...document.querySelectorAll('audio')];
       // Pick master audio with highest duration or largest src
-      const masterAudio = audios.find(a => (a.duration && a.duration > 5) || (a.src && a.src.length > 50000)) || audios[0];
-      const src = (masterAudio && masterAudio.src) || document.querySelector('audio source')?.src;
+      const masterAudio = audios.filter(a => Number.isFinite(a.duration) && a.duration > 1).sort((a,b) => b.duration - a.duration)[0];
+      const src = masterAudio && (masterAudio.src || masterAudio.querySelector('source')?.src);
       if (!src) return null;
 
       if (src.startsWith('data:audio')) {
@@ -557,6 +551,7 @@
   }
 
   async function triggerDownload() {
+    if (scanPage().phase !== 'editor') throw new Error('Speech editor not verified; refusing download.');
     const audioData = await getAudioBlobBase64();
     if (audioData && audioData.base64) {
       latestAudioData = audioData;
@@ -579,8 +574,8 @@
       }
     }
 
-    // Direct programmatic download anchor as guarantee
-    if (audioData && audioData.base64) {
+    // Use one download mechanism; avoid duplicate files.
+    if (!downloadBtn && audioData && audioData.base64) {
       try {
         const a = document.createElement('a');
         a.href = `data:audio/wav;base64,${audioData.base64}`;
@@ -588,10 +583,11 @@
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-      } catch (e) {}
+      } catch (e) { throw new Error('Audio download could not be initiated'); }
     }
 
-    return { ok: true, message: 'Download initiated', audio: audioData };
+    if (!downloadBtn && !(audioData && audioData.base64)) throw new Error('No audio or download control found');
+    return { ok: true, message: 'Download requested; browser completion and file identity are not verified.' };
   }
 
   // Dynamic Message Dispatcher (allows instant content.js updates)
@@ -928,8 +924,29 @@
       window.location.reload();
       return { ok: true, message: 'Reload initiated' };
     }
-    if (msg.type === 'scan' || msg.action === 'scan') {
+    if (msg.type === 'scan' || msg.type === 'speech:scan' || msg.action === 'scan') {
       return scanPage();
+    }
+    if (msg.action === 'recovery_check') {
+      const state = scanPage();
+      const editors = getSpeechTextareas();
+      const nonempty = editors.filter(el => String(el.value || '').trim()).length;
+      const visibleAudio = [...document.querySelectorAll('audio')].some(el => Boolean(el.currentSrc || el.src));
+      // Even an empty editor may contain a user's selected voices or styles.
+      const safe = state.phase === 'landing' && !state.isGenerating && !state.canDownload && !visibleAudio && nonempty === 0;
+      return {ok:true, safeToRefresh:safe, phase:state.phase, blocks:editors.length, nonemptyBlocks:nonempty,
+        hasAudio:Boolean(state.canDownload || visibleAudio), isGenerating:state.isGenerating,
+        reason:safe ? 'Empty verified speech page.' : 'Refresh blocked: page state is uncertain or contains text, audio, or an active generation.'};
+    }
+    if (msg.action === 'continue_welcome') {
+      const dialogs = [...document.querySelectorAll('[role="dialog"], mat-dialog-container, .mat-mdc-dialog-container')].filter(isVisible)
+        .filter(d => /welcome to ai studio/i.test(d.innerText || '') && /terms of service/i.test(d.innerText || ''));
+      if (dialogs.length !== 1) throw new Error('Welcome/terms dialog was not uniquely identified; inspect the active tab.');
+      const buttons = getButtons(dialogs[0]).filter(b => /^continue$/i.test((b.innerText || '').trim()) || /^continue$/i.test((b.getAttribute('aria-label') || '').trim()));
+      if (buttons.length !== 1) throw new Error('Continue button was not uniquely identified.');
+      buttons[0].click(); await delay(1200);
+      if (isVisible(dialogs[0])) throw new Error('Continue was clicked but dialog dismissal was not verified.');
+      return {ok:true,message:'Welcome dialog dismissed; scan the page before continuing.'};
     }
     if (msg.action === 'ensure_editor') {
       await ensureEditor();
@@ -937,6 +954,22 @@
     }
     if (msg.action === 'setup_screenplay') {
       return await setupScreenplay(msg.payload || {});
+    }
+    if (msg.action === 'setup_and_run') {
+      const metrics = {startedAt:Date.now()};
+      const setup = await setupScreenplay({...msg.payload, __metrics:metrics});
+      metrics.setupVerifiedAt = Date.now();
+      // User preference: give the verified editor one second before Run.
+      await delay(1000);
+      const run = await runGeneration(metrics);
+      return {ok:true, setup, run, timing:{jobToCreateClickMs:metrics.createClickAt == null ? null : metrics.createClickAt-metrics.startedAt, setupToRunClickMs:metrics.runClickAt-metrics.setupVerifiedAt, setupMs:metrics.setupVerifiedAt-metrics.startedAt}, message:'Setup verified and Run clicked once. Download and verify the audio separately.'};
+    }
+    if (msg.action === 'configure_voice') {
+      if (scanPage().phase !== 'editor') throw new Error('Speech editor not verified');
+      const {speakerNum, voice} = msg.payload || {};
+      if (![1,2].includes(speakerNum) || typeof voice !== 'string' || !voice.trim()) throw new Error('Expected speakerNum 1 or 2 and a voice name');
+      await configureSpeakerVoice(speakerNum, voice.trim());
+      return {ok:true, speakerNum, voice:voice.trim(), message:'Voice selection verified in the editor'};
     }
     if (msg.action === 'run') {
       return await runGeneration();
@@ -949,24 +982,7 @@
       return await triggerDownload();
     }
     if (msg.action === 'generate_screenplay') {
-      console.log('[RAVIX Speech Engine] Starting all-in-one screenplay generation pipeline...');
-      latestAudioData = null;
-      const setupRes = await setupScreenplay(msg.payload || {});
-      await runGeneration();
-      let dl = null;
-      try {
-        dl = await triggerDownload();
-      } catch (dlErr) {
-        console.warn('Download trigger warning:', dlErr);
-      }
-      const audioBlob = latestAudioData || await getAudioBlobBase64();
-      return {
-        ok: true,
-        message: 'Screenplay completed and downloaded',
-        setup: setupRes,
-        audio: audioBlob,
-        download: dl
-      };
+      throw new Error('All-in-one generation is disabled because downloaded file association cannot be verified. Use setup_screenplay, inspect blocks, run, and verify the download separately.');
     }
     return { ok: false, error: 'Unknown message action' };
   };

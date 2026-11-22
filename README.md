@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-v1.1.14-blue?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v10.0.144-blue?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/Manifest-V3-success?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Manifest V3">
   <img src="https://img.shields.io/badge/Google_AI_Studio-Gemini_3.8_Flash_TTS-orange?style=for-the-badge&logo=google" alt="Gemini 3.8 Flash TTS">
   <img src="https://img.shields.io/badge/Audio-24_kHz_PCM_WAV-purple?style=for-the-badge" alt="24kHz Audio">
@@ -98,7 +98,9 @@ ravix-speech/
 │   ├── run_project.py
 │   └── rama-ravana-project.json
 ├── docs/                            # In-depth production & performance guides
+│   ├── INSTANT-RUNBOOK.md
 │   ├── performance-direction-guide.md
+│   ├── SAFETY-AND-DIALOGUE.md
 │   ├── speech-interface-map.md
 │   └── speech-production-guide.md
 ├── icons/                           # Extension brand assets & logo masters
@@ -109,6 +111,7 @@ ravix-speech/
 ├── automation.js                    # Core script injector & studio automation
 ├── background.js                    # Service worker & message router
 ├── content.js                       # Content script for AI Studio DOM interaction
+├── dialogue-planner.js              # Multi-character dialogue project batch planner
 ├── manifest.json                    # Chrome Extension Manifest V3
 ├── panel.html                       # Extension companion UI
 ├── panel.js                         # Companion workspace logic
